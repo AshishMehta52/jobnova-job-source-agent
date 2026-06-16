@@ -6,7 +6,7 @@ from agent import run_agent
 st.set_page_config(page_title="AI Job Source Agent", layout="wide")
 
 st.title("AI Job Source Agent")
-st.write("Finds a company's careers page and one open job posting URL.")
+st.write("Finds a company's careers page and attempts to extract one open job posting URL.")
 
 company_name = st.text_input("Company Name", value="Stripe")
 company_website = st.text_input("Company Website URL", value="https://stripe.com")

@@ -8,3 +8,11 @@ Output format:
 - Company name
 - Career page URL
 - Open position URL
+
+Agent progress:
+- Success handling when a job URL is found
+- Partial-success handling when only the career page is found
+- Failure handling when no career page is found
+- Requests-first crawling
+- Playwright fallback for dynamic pages
+- CSV export through Streamlit
