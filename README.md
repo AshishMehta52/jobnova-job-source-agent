@@ -1,18 +1,25 @@
-# jobnova-job-source-agent
+# AI Job Source Agent
 
-I am making this project for Jobnova's AI Engineer take-home challenge.
+This project implements Part 2 of the Jobnova AI Engineer take-home challenge.
 
-The agent takes a company website or job listing input, finds the company's careers page, extracts one open job posting URL, and returns the result in a structured format.
+The agent starts from a LinkedIn jobs listing/search URL, extracts company information using a third-party LinkedIn crawler API, navigates from the company website to the careers page, extracts one open position URL, and returns the result in the required format.
 
-Output format:
+## Required Output
+
 - Company name
 - Career page URL
 - Open position URL
 
-Agent progress:
-- Success handling when a job URL is found
-- Partial-success handling when only the career page is found
-- Failure handling when no career page is found
-- Requests-first crawling
-- Playwright fallback for dynamic pages
-- CSV export through Streamlit
+## Workflow
+
+1. User enters a LinkedIn jobs listing/search URL.
+2. The app sends the URL to an Apify LinkedIn Jobs Scraper actor.
+3. The actor returns structured job data, including company name and company website when available.
+4. The agent visits the company website.
+5. The agent finds the careers page.
+6. The agent extracts one open position URL.
+7. The app returns the final result in a table and downloadable CSV.
+
+## Note
+
+The challenge allows the use of a third-party LinkedIn crawler API. This demo uses Apify for LinkedIn extraction because direct LinkedIn scraping is often restricted or blocked.

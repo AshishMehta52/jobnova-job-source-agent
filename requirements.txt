@@ -4,3 +4,5 @@ requests
 streamlit
 pandas
 lxml
+apify-client
+python-dotenv
