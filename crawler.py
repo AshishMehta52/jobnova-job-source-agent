@@ -1,6 +1,7 @@
+import json
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 
 
@@ -15,7 +16,9 @@ CAREER_KEYWORDS = [
     "work with us",
     "open roles",
     "open positions",
-    "hiring"
+    "hiring",
+    "employment",
+    "opportunities"
 ]
 
 JOB_KEYWORDS = [
@@ -30,19 +33,124 @@ JOB_KEYWORDS = [
     "associate",
     "software",
     "product",
-    "data"
+    "data",
+    "consultant",
+    "research",
+    "technical",
+    "solutions"
+]
+
+JOB_BOARD_DOMAINS = [
+    "greenhouse.io",
+    "lever.co",
+    "ashbyhq.com",
+    "workdayjobs.com",
+    "myworkdayjobs.com",
+    "smartrecruiters.com",
+    "icims.com",
+    "breezy.hr",
+    "jobvite.com",
+    "recruitee.com",
+    "boards.greenhouse.io",
+    "jobs.lever.co"
+]
+
+BAD_KEYWORDS = [
+    "privacy",
+    "terms",
+    "benefits",
+    "culture",
+    "linkedin",
+    "twitter",
+    "facebook",
+    "instagram",
+    "youtube",
+    "mailto:",
+    "login",
+    "sign-in",
+    "signin"
 ]
 
 
 def clean_url(url):
+    if not url:
+        return None
+
+    url = url.strip()
+
     if not url.startswith("http"):
         url = "https://" + url
+
     return url.rstrip("/")
+
+
+def same_domain_or_job_board(base_url, test_url):
+    try:
+        base_domain = urlparse(base_url).netloc.lower().replace("www.", "")
+        test_domain = urlparse(test_url).netloc.lower().replace("www.", "")
+
+        if base_domain and base_domain in test_domain:
+            return True
+
+        for domain in JOB_BOARD_DOMAINS:
+            if domain in test_domain:
+                return True
+
+    except Exception:
+        return False
+
+    return False
+
+
+def looks_like_job_or_career_page(url):
+    if not url:
+        return False
+
+    lower_url = url.lower()
+
+    useful_parts = [
+        "/careers",
+        "/career",
+        "/jobs",
+        "/job",
+        "/positions",
+        "/openings",
+        "/roles",
+        "greenhouse.io",
+        "lever.co",
+        "ashbyhq.com",
+        "workdayjobs.com",
+        "myworkdayjobs.com",
+        "smartrecruiters.com",
+        "icims.com"
+    ]
+
+    for part in useful_parts:
+        if part in lower_url:
+            return True
+
+    return False
+
+
+def is_bad_link(text, url):
+    text = text.lower()
+    url = url.lower()
+
+    for bad_keyword in BAD_KEYWORDS:
+        if bad_keyword in text or bad_keyword in url:
+            return True
+
+    return False
 
 
 def get_page_with_requests(url):
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=12,
+            allow_redirects=True
+        )
 
         if response.status_code >= 200 and response.status_code < 400:
             return response.text
@@ -58,8 +166,8 @@ def get_page_with_playwright(url):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=HEADERS["User-Agent"])
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(2000)
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(3000)
             html = page.content()
             browser.close()
             return html
@@ -84,7 +192,7 @@ def get_links(base_url, html):
     links = []
 
     for tag in soup.find_all("a", href=True):
-        text = tag.get_text(" ", strip=True).lower()
+        text = tag.get_text(" ", strip=True)
         href = tag["href"]
         full_url = urljoin(base_url, href)
 
@@ -96,16 +204,72 @@ def get_links(base_url, html):
     return links
 
 
+def extract_json_ld_job_url(base_url, html):
+    soup = BeautifulSoup(html, "html.parser")
+    scripts = soup.find_all("script", type="application/ld+json")
+
+    for script in scripts:
+        try:
+            data = json.loads(script.string)
+        except Exception:
+            continue
+
+        job_url = find_jobposting_url_in_json(data)
+
+        if job_url:
+            return urljoin(base_url, job_url)
+
+    return None
+
+
+def find_jobposting_url_in_json(data):
+    if isinstance(data, dict):
+        item_type = data.get("@type")
+
+        if item_type == "JobPosting":
+            url = data.get("url") or data.get("sameAs")
+
+            if url:
+                return url
+
+        for value in data.values():
+            found = find_jobposting_url_in_json(value)
+
+            if found:
+                return found
+
+    if isinstance(data, list):
+        for item in data:
+            found = find_jobposting_url_in_json(item)
+
+            if found:
+                return found
+
+    return None
+
+
 def find_career_page(company_url):
     company_url = clean_url(company_url)
 
+    if not company_url:
+        return None
+
+    if looks_like_job_or_career_page(company_url):
+        return company_url
+
     common_paths = [
         "/careers",
+        "/career",
         "/jobs",
+        "/job",
         "/join-us",
         "/work-with-us",
         "/company/careers",
-        "/about/careers"
+        "/about/careers",
+        "/en/careers",
+        "/us/en/careers",
+        "/employment",
+        "/opportunities"
     ]
 
     for path in common_paths:
@@ -123,31 +287,55 @@ def find_career_page(company_url):
     links = get_links(company_url, html)
 
     for link in links:
-        text = link["text"]
+        text = link["text"].lower()
         url = link["url"].lower()
+
+        if is_bad_link(text, url):
+            continue
 
         for keyword in CAREER_KEYWORDS:
             keyword_url = keyword.replace(" ", "-")
 
             if keyword in text or keyword_url in url:
-                return link["url"]
+                if same_domain_or_job_board(company_url, link["url"]):
+                    return link["url"]
 
     return None
 
 
-def find_open_position(career_page_url):
-    pages_to_check = [career_page_url]
-    visited = set()
+def link_looks_like_job_post(link):
+    text = link["text"].lower()
+    url = link["url"].lower()
 
-    job_board_domains = [
-        "greenhouse.io",
-        "lever.co",
-        "ashbyhq.com",
-        "workdayjobs.com",
-        "smartrecruiters.com",
-        "icims.com",
-        "breezy.hr"
-    ]
+    if is_bad_link(text, url):
+        return False
+
+    for domain in JOB_BOARD_DOMAINS:
+        if domain in url:
+            if "/job" in url or "/jobs" in url or "posting" in url or len(url) > 45:
+                return True
+
+    for keyword in JOB_KEYWORDS:
+        if keyword in text or keyword in url:
+            if (
+                "/job" in url
+                or "/jobs" in url
+                or "/careers" in url
+                or "/positions" in url
+                or "/openings" in url
+                or "/roles" in url
+            ):
+                return True
+
+    return False
+
+
+def link_looks_like_next_jobs_page(link):
+    text = link["text"].lower()
+    url = link["url"].lower()
+
+    if is_bad_link(text, url):
+        return False
 
     next_page_keywords = [
         "see open roles",
@@ -158,23 +346,32 @@ def find_open_position(career_page_url):
         "all jobs",
         "explore roles",
         "browse jobs",
-        "positions"
+        "positions",
+        "view openings",
+        "current openings"
     ]
 
-    bad_keywords = [
-        "privacy",
-        "terms",
-        "benefits",
-        "culture",
-        "linkedin",
-        "twitter",
-        "facebook",
-        "instagram",
-        "youtube",
-        "mailto:"
-    ]
+    for keyword in next_page_keywords:
+        if keyword in text or keyword.replace(" ", "-") in url:
+            return True
 
-    for depth in range(2):
+    for domain in JOB_BOARD_DOMAINS:
+        if domain in url:
+            return True
+
+    return False
+
+
+def find_open_position(start_url, max_depth=3):
+    start_url = clean_url(start_url)
+
+    if not start_url:
+        return None
+
+    pages_to_check = [start_url]
+    visited = set()
+
+    for depth in range(max_depth):
         new_pages = []
 
         for page_url in pages_to_check:
@@ -188,44 +385,23 @@ def find_open_position(career_page_url):
             if not html:
                 continue
 
+            json_ld_job_url = extract_json_ld_job_url(page_url, html)
+
+            if json_ld_job_url:
+                return json_ld_job_url
+
             links = get_links(page_url, html)
 
             for link in links:
-                text = link["text"].lower()
-                url = link["url"].lower()
-
-                bad_link = False
-
-                for bad_keyword in bad_keywords:
-                    if bad_keyword in url or bad_keyword in text:
-                        bad_link = True
-
-                if bad_link:
-                    continue
-
-                for domain in job_board_domains:
-                    if domain in url:
-                        if "/job" in url or "/jobs" in url or "posting" in url or len(url) > 45:
-                            return link["url"]
-
-                for keyword in JOB_KEYWORDS:
-                    if keyword in text or keyword in url:
-                        if "/job" in url or "/jobs" in url or "/careers" in url or "/positions" in url:
-                            return link["url"]
+                if link_looks_like_job_post(link):
+                    return link["url"]
 
             for link in links:
-                text = link["text"].lower()
-                url = link["url"].lower()
+                if link["url"] in visited:
+                    continue
 
-                for keyword in next_page_keywords:
-                    if keyword in text or keyword.replace(" ", "-") in url:
-                        if link["url"] not in visited:
-                            new_pages.append(link["url"])
-
-                for domain in job_board_domains:
-                    if domain in url:
-                        if link["url"] not in visited:
-                            new_pages.append(link["url"])
+                if link_looks_like_next_jobs_page(link):
+                    new_pages.append(link["url"])
 
         pages_to_check = new_pages
 

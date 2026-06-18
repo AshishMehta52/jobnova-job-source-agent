@@ -1,4 +1,4 @@
-from crawler import find_career_page, find_open_position
+from crawler import find_career_page, find_open_position, looks_like_job_or_career_page
 
 
 def run_agent(company_name, company_website):
@@ -14,6 +14,24 @@ def run_agent(company_name, company_website):
     return {
         "company_name": company_name,
         "company_website": company_website,
+        "career_page_url": career_page_url,
+        "open_position_url": open_position_url,
+        "status": status
+    }
+
+
+def run_direct_page_agent(company_name, page_url):
+    career_page_url = page_url
+    open_position_url = find_open_position(page_url)
+
+    if open_position_url:
+        status = "success"
+    else:
+        status = "no job link found from provided page"
+
+    return {
+        "company_name": company_name,
+        "company_website": None,
         "career_page_url": career_page_url,
         "open_position_url": open_position_url,
         "status": status
